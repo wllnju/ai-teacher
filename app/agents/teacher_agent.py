@@ -4,13 +4,15 @@ from typing import List, Optional
 
 def _clean_text(text: str) -> str:
     text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"(?<=[a-zA-Z])\s+(?=[.,;:!?])", "", text)
     text = re.sub(r"[•\-]\s*", "- ", text)
-    text = re.sub(r"(?<=\w)\s(?=[.,;:!?])", "", text)
     return text.strip()
 
 
 def _extract_sentences(text: str) -> List[str]:
     text = _clean_text(text)
+    if not text:
+        return []
     parts = re.split(r"(?<=[.!?])\s+", text)
     return [s.strip() for s in parts if s.strip()]
 
@@ -33,7 +35,8 @@ def _truncate(text: str, max_words: int = 380) -> str:
     words = text.split()
     if len(words) <= max_words:
         return text
-    return " ".join(words[:max_words]) + "..."
+    trimmed = " ".join(words[:max_words])
+    return trimmed.rstrip(".,;:!?") + "..."
 
 
 def _sort_chunks(chunks: List[dict]) -> List[dict]:
@@ -51,6 +54,25 @@ def _map_section(text: str) -> Optional[str]:
     if any(k in lower for k in ["tech stack", "technology", "framework", "stack", "language", "database", "api"]):
         return "Tech stack"
     return None
+
+
+def _assemble_paragraphs(
+    sentences: List[str],
+    max_paragraphs: int = 3,
+    max_sentences_per_paragraph: int = 4,
+) -> str:
+    paragraphs = []
+    current = []
+    for sentence in sentences:
+        current.append(sentence)
+        if len(current) >= max_sentences_per_paragraph:
+            paragraphs.append(" ".join(current))
+            current = []
+        if len(paragraphs) >= max_paragraphs:
+            break
+    if current:
+        paragraphs.append(" ".join(current))
+    return "\n\n".join(paragraphs)
 
 
 def build_answer(question: str, chunks: List[dict]) -> tuple[str, List[str]]:
@@ -73,8 +95,7 @@ def build_answer(question: str, chunks: List[dict]) -> tuple[str, List[str]]:
     if _is_summary_question(question):
         sections = {}
         for chunk in unique_chunks:
-            sentences = _extract_sentences(chunk.get("text", ""))
-            for sentence in sentences:
+            for sentence in _extract_sentences(chunk.get("text", "")):
                 section = _map_section(sentence)
                 if section:
                     sections.setdefault(section, [])
@@ -83,18 +104,19 @@ def build_answer(question: str, chunks: List[dict]) -> tuple[str, List[str]]:
 
         if not sections:
             sentences = _extract_sentences(" ".join(c.get("text", "") for c in unique_chunks[:3]))
-            answer = " ".join(sentences[:12])
+            answer = _assemble_paragraphs(sentences[:14], max_paragraphs=2, max_sentences_per_paragraph=5)
             answer = _truncate(answer)
         else:
             parts = []
             for section in ["Project vision", "Workflow", "Agents", "Tech stack"]:
                 if section in sections:
-                    parts.append(f"{section}:\n" + " ".join(sections[section][:4]))
+                    sentences = sections[section][:4]
+                    parts.append(section + ":\n" + _assemble_paragraphs(sentences, max_paragraphs=1, max_sentences_per_paragraph=4))
             answer = "\n\n".join(parts)
             answer = _truncate(answer)
 
         follow_ups = [
-            "Can you explain this in simpler terms?",
+            "Can you explain any of these points in more detail?",
             "What is an example of this concept?",
             "Can you quiz me on this topic?",
         ]
@@ -112,7 +134,7 @@ def build_answer(question: str, chunks: List[dict]) -> tuple[str, List[str]]:
                 seen_sentences.add(s)
                 unique_sentences.append(s)
 
-        answer = " ".join(unique_sentences[:12])
+        answer = _assemble_paragraphs(unique_sentences[:10], max_paragraphs=2, max_sentences_per_paragraph=5)
         answer = _truncate(answer)
 
         follow_ups = [
@@ -133,7 +155,7 @@ def build_answer(question: str, chunks: List[dict]) -> tuple[str, List[str]]:
             seen_sentences.add(s)
             unique_sentences.append(s)
 
-    answer = " ".join(unique_sentences[:12])
+    answer = _assemble_paragraphs(unique_sentences[:12], max_paragraphs=3, max_sentences_per_paragraph=4)
     answer = _truncate(answer, max_words=300)
 
     follow_ups = [

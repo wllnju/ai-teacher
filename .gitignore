@@ -7,7 +7,17 @@ __pycache__/
 env/
 venv/
 
-.data/
+# Keep data folder structure but ignore generated data
+data/uploads/*
+!data/uploads/.gitkeep
+
+data/chroma/*
+!data/chroma/.gitkeep
+
+data/documents.json
+data/progress.json
+
+#.data/
 *.db
 *.sqlite3
 
